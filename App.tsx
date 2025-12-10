@@ -4,7 +4,7 @@ import { FyersConfig, Stock } from './types';
 import { fetchQuotes, exchangeAuthCode } from './services/fyers';
 import { ConfigModal } from './components/ConfigModal';
 import { StockTable } from './components/StockTable';
-import { Activity, RefreshCw, Zap, WifiOff, Wifi, TrendingUp, TrendingDown, LogOut, BarChart3, ArrowUp as ArrowUpIcon, ArrowDown as ArrowDownIcon } from 'lucide-react';
+import { Activity, RefreshCw, Zap, WifiOff, Wifi, TrendingUp, TrendingDown, LogOut, BarChart3, ArrowUp as ArrowUpIcon, ArrowDown as ArrowDownIcon, Settings } from 'lucide-react';
 
 const POLLING_INTERVAL = 2000; // 2 Seconds for live feel
 
@@ -16,6 +16,7 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [marketStatus, setMarketStatus] = useState<'connected' | 'disconnected' | 'connecting'>('disconnected');
   const [isProcessingAuth, setIsProcessingAuth] = useState(false);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   
   // Stats
   const marketOverview = useMemo(() => {
@@ -29,7 +30,7 @@ function App() {
 
   const pollingRef = useRef<number | null>(null);
 
-  // Handle OAuth Redirect on Mount (Auto-Exchange)
+  // Handle OAuth Redirect on Mount
   useEffect(() => {
     const handleAuthRedirect = async () => {
       const urlParams = new URLSearchParams(window.location.search);
@@ -73,8 +74,7 @@ function App() {
           }
         } else {
           setIsProcessingAuth(false); 
-          // User might have opened the link manually in a new tab without session storage.
-          setError("Session context lost. Please try the 'Generate Token' flow again.");
+          setError("Session expired or invalid. Please try generating the token again.");
         }
       }
     };
@@ -117,20 +117,8 @@ function App() {
   const handleConfigSave = (newConfig: FyersConfig) => {
     setConfig(newConfig);
     setIsProcessingAuth(false);
+    setIsConfigModalOpen(false);
     startPolling(newConfig);
-  };
-
-  // Wrapper for token exchange to pass to modal
-  const handleExchangeToken = async (code: string, appId: string, secretId: string): Promise<string> => {
-    setIsProcessingAuth(true);
-    try {
-      const token = await exchangeAuthCode(code, appId, secretId);
-      setIsProcessingAuth(false);
-      return token;
-    } catch (e) {
-      setIsProcessingAuth(false);
-      throw e;
-    }
   };
 
   const handleDisconnect = () => {
@@ -141,59 +129,11 @@ function App() {
     setError(null);
   };
 
-  // Landing Page
-  if (!config) {
-    return (
-      <div className="min-h-screen bg-gray-950 text-white relative overflow-hidden flex flex-col items-center justify-center p-4">
-        {/* Decorative Elements */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
-           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 rounded-full blur-[120px]"></div>
-           <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 rounded-full blur-[120px]"></div>
-        </div>
-
-        <div className="z-10 text-center mb-8 max-w-2xl">
-          <div className="inline-flex items-center justify-center p-3 bg-blue-500/10 rounded-2xl mb-6 border border-blue-500/20 backdrop-blur-sm">
-             <Activity className="w-10 h-10 text-blue-400" />
-          </div>
-          <h1 className="text-5xl font-bold mb-6 bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
-            Nifty 50 Live Monitor
-          </h1>
-          <p className="text-xl text-gray-400 mb-8 leading-relaxed">
-            Real-time institutional-grade market dashboard. Connect your Fyers API credentials to monitor the top 50 Indian stocks with sub-second latency.
-          </p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-left max-w-xl mx-auto mb-12">
-            <FeatureCard icon={<Zap className="text-yellow-400" />} title="Real-time Data" desc="Live quotes via Fyers API" />
-            <FeatureCard icon={<BarChart3 className="text-green-400" />} title="Market Breadth" desc="Instant advance/decline stats" />
-            <FeatureCard icon={<Activity className="text-blue-400" />} title="Zero Latency" desc="Direct client-side connection" />
-          </div>
-        </div>
-
-        <ConfigModal 
-          onSave={handleConfigSave} 
-          onExchangeCode={handleExchangeToken}
-          isProcessingAuth={isProcessingAuth} 
-        />
-        
-        {error && !isProcessingAuth && (
-          <div className="z-20 mt-4 bg-red-900/50 border border-red-700 text-red-200 px-4 py-2 rounded-lg flex items-center gap-2 max-w-md text-sm">
-            <WifiOff className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <div className="mt-12 text-sm text-gray-600 z-10">
-          Powered by Fyers API v3 • Secure Client-Side Only
-        </div>
-      </div>
-    );
-  }
-
-  // Dashboard
+  // Dashboard is always rendered now
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col font-sans">
+    <div className="h-screen bg-gray-950 text-gray-100 flex flex-col font-sans overflow-hidden">
       {/* Navbar */}
-      <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-30">
+      <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-30 shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-blue-600/20 p-2 rounded-lg">
@@ -204,7 +144,7 @@ function App() {
           
           <div className="flex items-center gap-4">
              {/* Status Pill */}
-             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium ${
+             <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium ${
                marketStatus === 'connected' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
                marketStatus === 'connecting' ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400' :
                'bg-red-500/10 border-red-500/20 text-red-400'
@@ -213,50 +153,65 @@ function App() {
                <span className="uppercase tracking-wider">{marketStatus}</span>
              </div>
 
-             <button 
-               onClick={handleDisconnect}
-               className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
-               title="Disconnect API"
-             >
-               <LogOut className="w-5 h-5" />
-             </button>
+             {/* Actions */}
+             <div className="flex items-center border-l border-gray-800 pl-4 gap-2">
+               <button 
+                 onClick={() => setIsConfigModalOpen(true)}
+                 className={`p-2 rounded-lg transition-colors ${!config ? 'bg-blue-600 text-white hover:bg-blue-500 animate-pulse' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+                 title="Settings & API Key"
+               >
+                 <Settings className="w-5 h-5" />
+               </button>
+
+               {config && (
+                 <button 
+                   onClick={handleDisconnect}
+                   className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded-lg transition-colors"
+                   title="Disconnect API"
+                 >
+                   <LogOut className="w-5 h-5" />
+                 </button>
+               )}
+             </div>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6 overflow-hidden">
         
         {/* Error Banner */}
         {error && (
-           <div className="bg-red-900/20 border border-red-800 text-red-200 p-4 rounded-xl flex items-center justify-between animate-fade-in">
+           <div className="bg-red-900/20 border border-red-800 text-red-200 p-4 rounded-xl flex items-center justify-between shrink-0">
              <div className="flex items-center gap-3">
                <WifiOff className="w-5 h-5 text-red-400" />
                <span>{error}</span>
              </div>
-             <button onClick={() => startPolling(config)} className="px-3 py-1 bg-red-800 hover:bg-red-700 rounded text-sm transition-colors">Retry</button>
+             {config && (
+               <button onClick={() => startPolling(config)} className="px-3 py-1 bg-red-800 hover:bg-red-700 rounded text-sm transition-colors">Retry</button>
+             )}
            </div>
         )}
 
-        {/* Market Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Market Stats Grid - Only show if we have some data or connected */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
            <StatCard 
              label="Market Sentiment" 
-             value={`${marketOverview.sentiment > 0 ? '+' : ''}${marketOverview.sentiment.toFixed(2)}%`}
+             value={stocks.length ? `${marketOverview.sentiment > 0 ? '+' : ''}${marketOverview.sentiment.toFixed(2)}%` : '--'}
              subValue="Avg Change"
              icon={marketOverview.sentiment >= 0 ? <TrendingUp className="text-green-400" /> : <TrendingDown className="text-red-400" />}
              trend={marketOverview.sentiment >= 0 ? 'up' : 'down'}
            />
            <StatCard 
              label="Advances" 
-             value={marketOverview.advances.toString()}
+             value={stocks.length ? marketOverview.advances.toString() : '--'}
              subValue="Stocks Up"
              icon={<ArrowUpIcon className="text-green-400" />}
              trend="up"
            />
            <StatCard 
              label="Declines" 
-             value={marketOverview.declines.toString()}
+             value={stocks.length ? marketOverview.declines.toString() : '--'}
              subValue="Stocks Down"
              icon={<ArrowDownIcon className="text-red-400" />}
              trend="down"
@@ -271,38 +226,58 @@ function App() {
         </div>
 
         {/* Main Table */}
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 overflow-hidden relative">
            <StockTable data={stocks} isLoading={isLoading && stocks.length === 0} />
+           
+           {/* Overlay for disconnected state */}
+           {!config && !isLoading && (
+             <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-4 text-center">
+               <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-2xl max-w-md">
+                 <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                   <Settings className="w-8 h-8 text-blue-400" />
+                 </div>
+                 <h3 className="text-xl font-bold text-white mb-2">Setup API Connection</h3>
+                 <p className="text-gray-400 mb-6 text-sm">
+                   Connect your Fyers account to see live market data for Nifty 50 stocks.
+                 </p>
+                 <button 
+                   onClick={() => setIsConfigModalOpen(true)}
+                   className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors w-full"
+                 >
+                   Open Settings
+                 </button>
+               </div>
+             </div>
+           )}
         </div>
       </main>
+
+      {/* Modal */}
+      {(isConfigModalOpen || isProcessingAuth) && (
+        <ConfigModal 
+          onSave={handleConfigSave} 
+          onClose={() => setIsConfigModalOpen(false)}
+          isProcessingAuth={isProcessingAuth} 
+        />
+      )}
     </div>
   );
 }
 
 // Helpers
-const FeatureCard = ({ icon, title, desc }: any) => (
-  <div className="bg-gray-900/50 p-4 rounded-xl border border-gray-800 flex items-start gap-3">
-    <div className="p-2 bg-gray-800 rounded-lg">{icon}</div>
-    <div>
-      <h3 className="font-semibold text-gray-200 text-sm">{title}</h3>
-      <p className="text-gray-500 text-xs">{desc}</p>
-    </div>
-  </div>
-);
-
 const StatCard = ({ label, value, subValue, icon, trend }: any) => (
-  <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center justify-between group hover:border-gray-700 transition-colors">
-    <div>
-      <p className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-1">{label}</p>
-      <div className={`text-2xl font-bold font-mono ${
+  <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between group hover:border-gray-700 transition-colors">
+    <div className="min-w-0">
+      <p className="text-gray-500 text-[10px] font-medium uppercase tracking-wider mb-1 truncate">{label}</p>
+      <div className={`text-xl font-bold font-mono truncate ${
         trend === 'up' ? 'text-green-400' : trend === 'down' ? 'text-red-400' : 'text-white'
       }`}>
         {value}
       </div>
-      <p className="text-gray-600 text-xs mt-1">{subValue}</p>
+      <p className="text-gray-600 text-[10px] mt-1 truncate">{subValue}</p>
     </div>
-    <div className={`p-3 rounded-xl bg-gray-800/50 ${trend === 'up' ? 'bg-green-900/10' : trend === 'down' ? 'bg-red-900/10' : ''}`}>
-      {React.cloneElement(icon, { className: `w-6 h-6 ${icon.props.className}` })}
+    <div className={`p-2.5 rounded-xl bg-gray-800/50 shrink-0 ${trend === 'up' ? 'bg-green-900/10' : trend === 'down' ? 'bg-red-900/10' : ''}`}>
+      {React.cloneElement(icon, { className: `w-5 h-5 ${icon.props.className}` })}
     </div>
   </div>
 );

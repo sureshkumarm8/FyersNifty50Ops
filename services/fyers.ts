@@ -7,46 +7,6 @@ import { generateAppIdHash } from '../utils/crypto';
 const QUOTES_URL = 'https://api.fyers.in/data-rest/v3/quotes';
 const VALIDATE_AUTH_URL = 'https://api.fyers.in/api/v3/validate-authcode';
 
-// List of CORS Proxies to try in order of preference
-// 'needsEncoding': true if the target URL must be encoded component
-const PROXY_LIST = [
-  { base: 'https://corsproxy.io/?', needsEncoding: true },
-  { base: 'https://thingproxy.freeboard.io/fetch/', needsEncoding: false },
-  { base: 'https://api.codetabs.com/v1/proxy?quest=', needsEncoding: true }
-];
-
-/**
- * Helper to fetch data using a failover strategy for proxies.
- * Tries proxies sequentially until one works or all fail.
- */
-async function fetchWithFailover(targetUrl: string, options: RequestInit): Promise<Response> {
-  let lastError: any;
-
-  for (const proxy of PROXY_LIST) {
-    try {
-      // Construct URL based on proxy requirements
-      const url = proxy.needsEncoding 
-        ? `${proxy.base}${encodeURIComponent(targetUrl)}` 
-        : `${proxy.base}${targetUrl}`;
-
-      const response = await fetch(url, options);
-
-      // If we get a response (even 4xx/5xx), the proxy worked and we reached the server.
-      // However, if the proxy itself returns a 500/503 (HTML error page), we might want to try the next one.
-      // For simplicity, we assume if fetch doesn't throw, the connection is successful.
-      return response;
-
-    } catch (error: any) {
-      console.warn(`Proxy ${proxy.base} failed:`, error.message);
-      lastError = error;
-      // Continue to next proxy in the list
-    }
-  }
-
-  // If all proxies fail
-  throw lastError || new Error("Unable to connect to any CORS proxy.");
-}
-
 // Helper to generate random demo data if user doesn't have API key handy
 const generateDemoData = (): Stock[] => {
   return NIFTY_50_SYMBOLS.map(item => {
@@ -79,21 +39,19 @@ export const fetchQuotes = async (config: FyersConfig): Promise<Stock[]> => {
   // Real API Flow
   try {
     const symbolsParam = NIFTY_50_SYMBOLS.map(s => s.symbol).join(',');
-    const targetUrl = `${QUOTES_URL}?symbols=${symbolsParam}`;
-
-    const response = await fetchWithFailover(targetUrl, {
+    
+    // Using Fyers V3 Data Quote API
+    const response = await fetch(`${QUOTES_URL}?symbols=${symbolsParam}`, {
       method: 'GET',
       headers: {
         // V3 Auth format: "AppID:AccessToken"
         'Authorization': `${config.appId}:${config.accessToken}`,
-        // Note: Content-Type is often not needed for GET and can trigger stricter CORS preflight
-      },
-      cache: 'no-store'
+        'Content-Type': 'application/json'
+      }
     });
 
     if (!response.ok) {
       if (response.status === 401) throw new Error("Invalid Credentials or Token Expired");
-      if (response.status === 403) throw new Error("Access Forbidden (Check Permissions)");
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
 
@@ -123,9 +81,6 @@ export const fetchQuotes = async (config: FyersConfig): Promise<Stock[]> => {
 
   } catch (error: any) {
     console.error("Fetch Quotes Error:", error);
-    if (error.message === 'Failed to fetch') {
-      throw new Error("Network Error: Could not connect to Fyers via Proxy. Please check your internet.");
-    }
     throw new Error(error.message || "Failed to connect to Fyers API");
   }
 };
@@ -141,7 +96,7 @@ export const exchangeAuthCode = async (authCode: string, appId: string, secretId
       client_id: appId // Explicitly including client_id for V3 robustness
     };
 
-    const response = await fetchWithFailover(VALIDATE_AUTH_URL, {
+    const response = await fetch(VALIDATE_AUTH_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -158,9 +113,6 @@ export const exchangeAuthCode = async (authCode: string, appId: string, secretId
     return data.access_token;
   } catch (error: any) {
     console.error("Auth Exchange Error:", error);
-    if (error.message === 'Failed to fetch') {
-      throw new Error("Network Error during Auth. Please check your connection.");
-    }
     throw new Error(error.message || "Failed to exchange auth code");
   }
 };
