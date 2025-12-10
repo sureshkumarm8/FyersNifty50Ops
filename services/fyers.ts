@@ -1,4 +1,3 @@
-
 import { FyersConfig, FyersResponse, Stock } from '../types';
 import { NIFTY_50_SYMBOLS } from '../constants';
 import { generateAppIdHash } from '../utils/crypto';
@@ -6,6 +5,12 @@ import { generateAppIdHash } from '../utils/crypto';
 // Fyers V3 Data API Endpoint
 const QUOTES_URL = 'https://api.fyers.in/data-rest/v3/quotes';
 const VALIDATE_AUTH_URL = 'https://api.fyers.in/api/v3/validate-authcode';
+
+// CORS Proxies to bypass browser restrictions on Vercel
+const PROXIES = [
+  'https://corsproxy.io/?',
+  'https://api.allorigins.win/raw?url=',
+];
 
 // Helper to generate random demo data if user doesn't have API key handy
 const generateDemoData = (): Stock[] => {
@@ -28,6 +33,37 @@ const generateDemoData = (): Stock[] => {
   });
 };
 
+const fetchWithProxy = async (url: string, headers: HeadersInit) => {
+  let lastError;
+
+  // Try proxies sequentially
+  for (const proxy of PROXIES) {
+    try {
+      // Must encode the target URL component for the proxy
+      const targetUrl = proxy + encodeURIComponent(url);
+      
+      const response = await fetch(targetUrl, {
+        method: 'GET',
+        headers: headers
+      });
+
+      if (response.ok) {
+        return response;
+      }
+      
+      // If 401/403, it's an API error, not a proxy error. Don't retry.
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("Invalid Credentials or Token Expired");
+      }
+
+    } catch (err) {
+      lastError = err;
+      console.warn(`Proxy ${proxy} failed, trying next...`);
+    }
+  }
+  throw lastError || new Error("All proxies failed to connect");
+};
+
 export const fetchQuotes = async (config: FyersConfig): Promise<Stock[]> => {
   // Demo Mode Flow
   if (config.isDemoMode) {
@@ -39,21 +75,16 @@ export const fetchQuotes = async (config: FyersConfig): Promise<Stock[]> => {
   // Real API Flow
   try {
     const symbolsParam = NIFTY_50_SYMBOLS.map(s => s.symbol).join(',');
+    const fullUrl = `${QUOTES_URL}?symbols=${symbolsParam}`;
     
     // Using Fyers V3 Data Quote API
-    const response = await fetch(`${QUOTES_URL}?symbols=${symbolsParam}`, {
-      method: 'GET',
-      headers: {
-        // V3 Auth format: "AppID:AccessToken"
-        'Authorization': `${config.appId}:${config.accessToken}`,
-        'Content-Type': 'application/json'
-      }
+    const response = await fetchWithProxy(fullUrl, {
+      // V3 Auth format: "AppID:AccessToken"
+      'Authorization': `${config.appId}:${config.accessToken}`,
+      // Do not add Content-Type for GET requests via proxy to avoid preflight issues
     });
 
-    if (!response.ok) {
-      if (response.status === 401) throw new Error("Invalid Credentials or Token Expired");
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
-    }
+    if (!response) throw new Error("Network Failed");
 
     const data: FyersResponse = await response.json();
 
@@ -96,7 +127,12 @@ export const exchangeAuthCode = async (authCode: string, appId: string, secretId
       client_id: appId // Explicitly including client_id for V3 robustness
     };
 
-    const response = await fetch(VALIDATE_AUTH_URL, {
+    // For POST requests, we might need to try direct first, then proxy if CORS fails
+    // But since this is a one-time setup action, we'll try a CORS proxy approach directly to be safe
+    const proxy = PROXIES[0];
+    const targetUrl = proxy + encodeURIComponent(VALIDATE_AUTH_URL);
+
+    const response = await fetch(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
