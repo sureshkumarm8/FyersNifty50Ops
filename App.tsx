@@ -29,7 +29,7 @@ function App() {
 
   const pollingRef = useRef<number | null>(null);
 
-  // Handle OAuth Redirect on Mount
+  // Handle OAuth Redirect on Mount (Auto-Exchange)
   useEffect(() => {
     const handleAuthRedirect = async () => {
       const urlParams = new URLSearchParams(window.location.search);
@@ -74,8 +74,7 @@ function App() {
         } else {
           setIsProcessingAuth(false); 
           // User might have opened the link manually in a new tab without session storage.
-          // In a real app, we might want to prompt for AppID/Secret again here.
-          setError("Session expired or invalid. Please try generating the token again.");
+          setError("Session context lost. Please try the 'Generate Token' flow again.");
         }
       }
     };
@@ -121,6 +120,19 @@ function App() {
     startPolling(newConfig);
   };
 
+  // Wrapper for token exchange to pass to modal
+  const handleExchangeToken = async (code: string, appId: string, secretId: string): Promise<string> => {
+    setIsProcessingAuth(true);
+    try {
+      const token = await exchangeAuthCode(code, appId, secretId);
+      setIsProcessingAuth(false);
+      return token;
+    } catch (e) {
+      setIsProcessingAuth(false);
+      throw e;
+    }
+  };
+
   const handleDisconnect = () => {
     if (pollingRef.current) window.clearInterval(pollingRef.current);
     setConfig(null);
@@ -157,7 +169,11 @@ function App() {
           </div>
         </div>
 
-        <ConfigModal onSave={handleConfigSave} isProcessingAuth={isProcessingAuth} />
+        <ConfigModal 
+          onSave={handleConfigSave} 
+          onExchangeCode={handleExchangeToken}
+          isProcessingAuth={isProcessingAuth} 
+        />
         
         {error && !isProcessingAuth && (
           <div className="z-20 mt-4 bg-red-900/50 border border-red-700 text-red-200 px-4 py-2 rounded-lg flex items-center gap-2 max-w-md text-sm">

@@ -1,14 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { FyersConfig } from '../types';
-import { Key, Lock, AlertTriangle, PlayCircle, Zap, Globe, Copy, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { Key, Lock, AlertTriangle, PlayCircle, Zap, Globe, Copy, ExternalLink, CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface ConfigModalProps {
   onSave: (config: FyersConfig) => void;
+  onExchangeCode?: (code: string, appId: string, secretId: string) => Promise<string>;
   isProcessingAuth?: boolean;
 }
 
-export const ConfigModal: React.FC<ConfigModalProps> = ({ onSave, isProcessingAuth }) => {
+export const ConfigModal: React.FC<ConfigModalProps> = ({ onSave, onExchangeCode, isProcessingAuth }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'generate'>('manual');
   
   // Manual State
@@ -21,9 +22,12 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onSave, isProcessingAu
   const [redirectUri, setRedirectUri] = useState(window.location.origin);
   const [generatedUrl, setGeneratedUrl] = useState('');
   
+  // Manual Code Entry State (for fallback)
+  const [manualAuthCode, setManualAuthCode] = useState('');
+  
   const [error, setError] = useState('');
 
-  // Load saved generator config from session if available (for UX continuity)
+  // Load saved generator config from session if available
   useEffect(() => {
     const savedConfig = sessionStorage.getItem('fyers_pending_auth');
     if (savedConfig) {
@@ -39,6 +43,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onSave, isProcessingAu
   // Update generated URL whenever inputs change
   useEffect(() => {
     if (genAppId && redirectUri) {
+      // Use 'code' as response_type (Fyers V3 Standard)
       const state = 'fyers_nifty_live_' + Date.now();
       const url = `https://api.fyers.in/api/v3/generate-authcode?client_id=${genAppId.trim()}&redirect_uri=${encodeURIComponent(redirectUri.trim())}&response_type=code&state=${state}`;
       setGeneratedUrl(url);
@@ -59,7 +64,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onSave, isProcessingAu
     onSave({ appId: 'demo', accessToken: 'demo', isDemoMode: true });
   };
 
-  const handleAuthorize = () => {
+  const openAuthWindow = () => {
     const cleanAppId = genAppId.trim();
     const cleanSecret = genSecretId.trim();
     const cleanRedirect = redirectUri.trim();
@@ -69,22 +74,55 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onSave, isProcessingAu
       return;
     }
 
-    // Save state to session storage to retrieve after redirect
+    // Save state to session storage
     sessionStorage.setItem('fyers_pending_auth', JSON.stringify({
       appId: cleanAppId,
       secretId: cleanSecret,
       redirectUri: cleanRedirect
     }));
 
-    // Redirect
+    // Open in new window to avoid iframe/environment 503 issues
     if (generatedUrl) {
-      window.location.href = generatedUrl;
+      window.open(generatedUrl, '_blank', 'width=600,height=700');
+    }
+  };
+
+  const handleManualCodeExchange = async () => {
+    setError('');
+    const codeToUse = manualAuthCode.trim();
+    
+    if (!codeToUse) {
+      setError("Please paste the Auth Code or the full callback URL.");
+      return;
+    }
+
+    // Extract code if user pasted full URL
+    let finalCode = codeToUse;
+    if (codeToUse.includes('auth_code=')) {
+      try {
+        const urlObj = new URL(codeToUse.startsWith('http') ? codeToUse : `http://dummy.com?${codeToUse}`);
+        const extracted = urlObj.searchParams.get('auth_code');
+        if (extracted) finalCode = extracted;
+      } catch (e) {
+        // Fallback if URL parsing fails
+        const match = codeToUse.match(/auth_code=([^&]+)/);
+        if (match) finalCode = match[1];
+      }
+    }
+
+    if (onExchangeCode) {
+      try {
+        const token = await onExchangeCode(finalCode, genAppId.trim(), genSecretId.trim());
+        // Success handled by parent via onSave usually, but we call onSave here to be sure
+        onSave({ appId: genAppId.trim(), accessToken: token, isDemoMode: false });
+      } catch (err: any) {
+        setError(err.message || "Failed to exchange code.");
+      }
     }
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    // Could add a toast here, but for now just visual feedback isn't implemented
   };
 
   if (isProcessingAuth) {
@@ -191,30 +229,31 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onSave, isProcessingAu
             <div className="space-y-4">
               <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-3">
                 <p className="text-xs text-blue-200">
-                  This tool helps you generate a token. It redirects you to Fyers to login, then validates the response.
+                  Follow the steps below to authenticate securely with Fyers.
                 </p>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">App ID</label>
-                <input
-                  type="text"
-                  value={genAppId}
-                  onChange={(e) => setGenAppId(e.target.value)}
-                  placeholder="Ex: XV234234-100"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">Secret ID</label>
-                <input
-                  type="password"
-                  value={genSecretId}
-                  onChange={(e) => setGenSecretId(e.target.value)}
-                  placeholder="Your App Secret Key"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">App ID</label>
+                  <input
+                    type="text"
+                    value={genAppId}
+                    onChange={(e) => setGenAppId(e.target.value)}
+                    placeholder="XV234234-100"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">Secret ID</label>
+                  <input
+                    type="password"
+                    value={genSecretId}
+                    onChange={(e) => setGenSecretId(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-xs"
+                  />
+                </div>
               </div>
 
               <div>
@@ -228,46 +267,56 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onSave, isProcessingAu
                   />
                   <Globe className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-500" />
                 </div>
-                <p className="text-[10px] text-yellow-500/80 mt-1">
-                  Must exactly match the Redirect URI in your Fyers App Dashboard.
-                </p>
               </div>
 
-              <div className="pt-2 space-y-3">
-                <button
-                  onClick={handleAuthorize}
-                  disabled={!generatedUrl}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded-lg transition-colors shadow-lg shadow-indigo-900/50 font-bold text-sm"
-                >
-                  <Zap className="w-4 h-4" />
-                  Authorize & Get Token
-                </button>
-                
-                {generatedUrl && (
-                  <div className="pt-2 border-t border-gray-800">
-                     <p className="text-[10px] text-gray-500 mb-2">If redirect fails, copy this URL and open it manually:</p>
-                     <div className="flex gap-2">
-                       <input 
-                         readOnly 
-                         value={generatedUrl} 
-                         className="flex-1 bg-black/30 border border-gray-800 rounded px-2 py-1 text-[10px] text-gray-400 font-mono overflow-hidden"
-                       />
-                       <button onClick={() => copyToClipboard(generatedUrl)} className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded text-gray-300">
-                         <Copy className="w-3 h-3" />
-                       </button>
-                       <a href={generatedUrl} className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded text-gray-300">
-                         <ExternalLink className="w-3 h-3" />
-                       </a>
-                     </div>
-                  </div>
-                )}
+              <div className="pt-2 border-t border-gray-800 space-y-4">
+                {/* Step 1 */}
+                <div>
+                   <div className="flex items-center justify-between mb-2">
+                     <span className="text-xs font-bold text-white bg-gray-700 px-2 py-0.5 rounded">Step 1</span>
+                     <span className="text-[10px] text-gray-500">Opens in new window</span>
+                   </div>
+                   <button
+                    onClick={openAuthWindow}
+                    disabled={!generatedUrl}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-lg transition-colors text-sm font-medium"
+                   >
+                    <ExternalLink className="w-4 h-4" />
+                    Open Fyers Login
+                   </button>
+                </div>
+
+                {/* Step 2 */}
+                <div>
+                   <div className="mb-2">
+                     <span className="text-xs font-bold text-white bg-gray-700 px-2 py-0.5 rounded">Step 2</span>
+                     <span className="text-[10px] text-gray-400 ml-2">Paste the Code or URL you were redirected to</span>
+                   </div>
+                   <div className="flex gap-2">
+                     <input
+                      type="text"
+                      value={manualAuthCode}
+                      onChange={(e) => setManualAuthCode(e.target.value)}
+                      placeholder="Paste 'auth_code' or full URL here..."
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none text-xs"
+                     />
+                     <button
+                      onClick={handleManualCodeExchange}
+                      disabled={!manualAuthCode}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded-lg transition-colors font-bold text-sm flex items-center gap-2"
+                     >
+                       <Zap className="w-4 h-4" />
+                       Connect
+                     </button>
+                   </div>
+                </div>
               </div>
             </div>
           )}
           
           <div className="mt-6 pt-4 border-t border-gray-800 text-center">
              <p className="text-[10px] text-gray-600">
-              Your credentials are encrypted and processed locally. They are never stored on any external server.
+              Your credentials are encrypted and processed locally.
             </p>
           </div>
         </div>
