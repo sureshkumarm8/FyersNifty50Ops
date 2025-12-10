@@ -1,0 +1,5 @@
+{
+  "name": "Fyers Nifty50 Live",
+  "description": "Real-time stock tracking dashboard for Nifty 50 stocks using Fyers API.",
+  "requestFramePermissions": []
+}
